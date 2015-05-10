@@ -9,7 +9,7 @@ import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{ Try, Success, Failure }
 import scala.swing.Reactions.Reaction
 import scala.swing.event.Event
-import rx.lang.scala.Observable
+import rx.lang.scala.{Subscription, Observable}
 
 /** Basic facilities for dealing with Swing-like components.
 *
@@ -44,25 +44,57 @@ trait SwingApi {
     def unsubscribe(r: Reaction): Unit
   }
 
+  /**
+   *
+   * @param field the text field
+   */
   implicit class TextFieldOps(field: TextField) {
 
     /** Returns a stream of text field values entered in the given text field.
       *
-      * @param field the text field
       * @return an observable with a stream of text field updates
       */
-    def textValues: Observable[String] = ???
+    def textValues: Observable[String] = Observable(observer => {
+
+      val reaction: Reaction = {
+        case ValueChanged(tf) => observer.onNext(tf.text)
+        case _ =>
+      }
+
+      field.subscribe(reaction)
+
+      Subscription{
+        field.unsubscribe(reaction)
+        observer.onCompleted()
+      }
+    })
 
   }
 
+  /**
+   *
+   * @param button the button
+   */
   implicit class ButtonOps(button: Button) {
 
     /** Returns a stream of button clicks.
      *
-     * @param field the button
      * @return an observable with a stream of buttons that have been clicked
      */
-    def clicks: Observable[Button] = ???
+    def clicks: Observable[Button] = Observable(observer => {
+
+      val reaction: Reaction = {
+        case ButtonClicked(button) => observer.onNext(button)
+        case _ =>
+      }
+
+      button.subscribe(reaction)
+
+      Subscription{
+        button.unsubscribe(reaction)
+        observer.onCompleted()
+      }
+    })
   }
 
 }
