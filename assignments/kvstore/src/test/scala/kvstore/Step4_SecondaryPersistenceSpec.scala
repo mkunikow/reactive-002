@@ -1,12 +1,10 @@
 package kvstore
 
-import akka.testkit.TestKit
-import akka.testkit.ImplicitSender
+import akka.testkit.{TestActor, TestKit, ImplicitSender, TestProbe}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.Matchers
 import org.scalatest.FunSuiteLike
-import akka.actor.ActorSystem
-import akka.testkit.TestProbe
+import akka.actor.{ActorRef, ActorSystem}
 import scala.concurrent.duration._
 import Arbiter._
 import Persistence._
@@ -32,6 +30,20 @@ class Step4_SecondaryPersistenceSpec extends TestKit(ActorSystem("Step4Secondary
     val replicator = TestProbe()
     val secondary = system.actorOf(Replica.props(arbiter.ref, probeProps(persistence)), "case1-secondary")
     val client = session(secondary)
+
+    replicator.setAutoPilot(new TestActor.AutoPilot {
+      def run(sender: ActorRef, msg: Any) = {
+        system.log.debug("replicator !!!!!!!!!!!!!!sender: " + sender + ", msg: " + msg)
+        this
+      }
+    })
+
+    persistence.setAutoPilot(new TestActor.AutoPilot {
+      def run(sender: ActorRef, msg: Any) = {
+        system.log.debug("persistence !!!!!!!!!!!!!!sender: " + sender + ", msg: " + msg)
+        this
+      }
+    })
 
     arbiter.expectMsg(Join)
     arbiter.send(secondary, JoinedSecondary)
