@@ -1,10 +1,11 @@
 package kvstore
 
-import akka.testkit.{ TestProbe, TestKit, ImplicitSender }
+import akka.event.Logging
+import akka.testkit.{TestActor, TestProbe, TestKit, ImplicitSender}
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.Matchers
 import org.scalatest.FunSuiteLike
-import akka.actor.ActorSystem
+import akka.actor.{ActorRef, ActorSystem}
 import scala.concurrent.duration._
 import kvstore.Arbiter.{ JoinedSecondary, Join }
 import kvstore.Persistence.{ Persisted, Persist }
@@ -18,6 +19,7 @@ class Step3_ReplicatorSpec extends TestKit(ActorSystem("Step3ReplicatorSpec"))
     with ConversionCheckedTripleEquals
     with ImplicitSender
     with Tools {
+
 
   override def afterAll(): Unit = {
     system.shutdown()
@@ -49,6 +51,13 @@ class Step3_ReplicatorSpec extends TestKit(ActorSystem("Step3ReplicatorSpec"))
 
   test("case2: Replicator should retry until acknowledged by secondary") {
     val secondary = TestProbe()
+    secondary.setAutoPilot(new TestActor.AutoPilot {
+      def run(sender: ActorRef, msg: Any) = {
+        system.log.debug("!!!!!!!!!!!!!!sender: " + sender + ", msg: " + msg)
+        this
+      }
+    })
+
     val replicator = system.actorOf(Replicator.props(secondary.ref), "case2-replicator")
 
     replicator ! Replicate("k1", Some("v1"), 0L)

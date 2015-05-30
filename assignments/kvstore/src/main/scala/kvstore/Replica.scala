@@ -1,7 +1,9 @@
 package kvstore
 
 import akka.actor.{ OneForOneStrategy, Props, ActorRef, Actor }
+import akka.event.LoggingReceive
 import kvstore.Arbiter._
+import scala.None
 import scala.collection.immutable.Queue
 import akka.actor.SupervisorStrategy.Restart
 import scala.annotation.tailrec
@@ -46,20 +48,45 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   // the current set of replicators
   var replicators = Set.empty[ActorRef]
 
+  var expectedReplicaSeq: Long = 0
 
-  def receive = {
+  arbiter ! Join
+
+
+  def receive = LoggingReceive {
     case JoinedPrimary   => context.become(leader)
     case JoinedSecondary => context.become(replica)
   }
 
   /* TODO Behavior for  the leader role. */
-  val leader: Receive = {
-    case _ =>
+  val leader: Receive = LoggingReceive {
+    case Insert(key, value, id) =>
+      kv += (key -> value)
+      sender ! OperationAck(id)
+    case Remove(key, id) =>
+      kv -= key
+      sender ! OperationAck(id)
+    case Get(key, id) =>
+      sender ! GetResult(key, kv get key, id)
   }
 
   /* TODO Behavior for the replica role. */
-  val replica: Receive = {
-    case _ =>
+  val replica: Receive = LoggingReceive {
+    case Get(key, id) =>
+      sender ! GetResult(key, kv get key, id)
+    case Snapshot(key, valueOption, seq) =>
+      if (seq > expectedReplicaSeq) {
+
+      } else if (seq < expectedReplicaSeq) {
+        sender ! SnapshotAck(key, seq)
+      } else {
+        valueOption match {
+          case Some(value) => kv += (key -> value)
+          case None => kv -= key
+        }
+        expectedReplicaSeq += 1
+        sender ! SnapshotAck(key, seq)
+      }
   }
 
 }
