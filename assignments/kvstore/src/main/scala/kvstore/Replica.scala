@@ -2,6 +2,7 @@ package kvstore
 
 import akka.actor.{Actor, ActorRef, Props, SupervisorStrategy}
 import akka.event.{Logging, LoggingReceive}
+import akka.persistence.SaveSnapshotFailure
 import kvstore.Arbiter._
 
 import scala.concurrent.duration._
@@ -30,8 +31,8 @@ object Replica {
   case class GetResult(key: String, valueOption: Option[String], id: Long) extends OperationReply
 
   case object RetryPersist
+  case class PersistedTimeout(id: Long)
 
-  case class PersistedTimeout(peristnace: ActorRef)
 
   def props(arbiter: ActorRef, persistenceProps: Props): Props = Props(new Replica(arbiter, persistenceProps))
 }
@@ -77,12 +78,33 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
   val leader: Receive = LoggingReceive {
     case Insert(key, value, id) =>
       kv += (key -> value)
-      sender ! OperationAck(id)
+      persist(id, key, Some(value), true)
     case Remove(key, id) =>
       kv -= key
-      sender ! OperationAck(id)
+      persist(id, key, None, true)
     case Get(key, id) =>
       sender ! GetResult(key, kv get key, id)
+    case Persisted(key, id) =>
+      log.debug("leader Persisted !!!!!!!!!!!!!!")
+      pendingPersistenceOps.get(id).foreach(e => {
+        val (recRef, _) = e
+        log.debug("send to recRef:" + recRef + ", msg: " + OperationAck(id))
+        recRef ! OperationAck(id)
+        expectedReplicaSeq += 1
+      })
+      pendingPersistenceOps -= id
+    case PersistedTimeout(id) =>
+      pendingPersistenceOps.get(id).foreach(e => {
+        val (recRef, _) = e
+        log.debug("send to recRef:" + recRef + ", msg: " + OperationFailed(id))
+        recRef ! OperationFailed(id)
+        expectedReplicaSeq += 1
+      })
+    case RetryPersist =>
+      pendingPersistenceOps foreach (e => {
+        val (_, (_, op)) = e
+        persistence ! op
+      })
   }
 
   /* TODO Behavior for the replica role. */
@@ -124,10 +146,13 @@ class Replica(val arbiter: ActorRef, persistenceProps: Props) extends Actor {
 
   }
 
-  def persist(id: Long, key: String, valueOption: Option[String]) = {
+  def persist(id: Long, key: String, valueOption: Option[String], primary: Boolean = false) = {
     val op = Persist(key, valueOption, id)
     pendingPersistenceOps += (id ->(sender, op))
     persistence ! op
+    if (primary) {
+      context.system.scheduler.scheduleOnce(1 second, context.self, PersistedTimeout(id))
+    }
   }
 
 }
